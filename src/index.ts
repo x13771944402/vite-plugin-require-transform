@@ -27,52 +27,65 @@ export default function vitePluginRequireTransform(fileRegex: RegExp = /.ts$|.ts
 				});
 				traverse(ast, {
 					enter(path) {
-						//require('./xxx')
+						//require('./xxx') || require(['./xxx'], resolve)
 						if (path.isIdentifier({ name: 'require' }) && t.isCallExpression(path?.parentPath?.node)) {
-							const requirePath = (path.parentPath.node.arguments[0] as t.StringLiteral).value;
-							//获取文件名
-							const requireSpecifier = requirePath.replace(/(.*\/)*([^.]+).*/ig, "$2").replace(/-/g, '_');
-							if (!importMap.has(requirePath)) {
-								importMap.set(requirePath, new Set());
-							}
-							//require('xxx').AAA
-							if (t.isMemberExpression(path.parentPath.parentPath) && t.isIdentifier((path?.parentPath?.parentPath?.node as t.MemberExpression)?.property)) {
-								const requirePathExports = importMap.get(requirePath);
-								const property = (path?.parentPath?.parentPath?.node as t.MemberExpression)?.property as t.Identifier;
-								const currentExport = property?.name;
-								if (requirePathExports) {
-									requirePathExports.add(currentExport);
-									importMap.set(requirePath, requirePathExports);
-									//替换当前行代码
-									path.parentPath.parentPath.replaceWithSourceString(prefix + requireSpecifier + currentExport)
-								}
-							} else {
-								//替换当前行代码
-								path.parentPath.replaceWithSourceString(prefix + requireSpecifier)
-								/**
-								 * 如果是这种情况
-								 * const result = condition ? null : require('zzz/yyy/xxx');
-								 * 需要记录这个result变量，然后往下全局找找他调用了什么方法，例如
-                                 * result.start();
-								 * result.stop();
-								 * 
-								 * 最终变成
-								 * import {start as _vite_plugin_require_transform_xxxstart,stop as _vite_plugin_require_transform_xxxstop} from "zzz/yyy/xxx"
-								 * const _vite_plugin_require_transform_xxx = {start:_vite_plugin_require_transform_start,stop:_vite_plugin_require_transform_stop}
-								 * const result = _vite_plugin_require_transform_xxx;
-								 */
-
-								// case1:const result = require('zzz/yyy/xxx');
-								if (t.isVariableDeclarator(path.parentPath?.parentPath?.node)) {
-									const variableDeclarator: t.VariableDeclarator = path.parentPath?.parentPath?.node;
-									variableMather[(variableDeclarator.id as t.Identifier).name] = requirePath;
-								}
-								//case2: const result = condition ? null : require('zzz/yyy/xxx');
-								if (t.isConditionalExpression(path.parentPath?.parentPath?.node) && t.isVariableDeclarator(path?.parentPath?.parentPath?.parentPath?.node)) {
-									const variableDeclarator: t.VariableDeclarator = path.parentPath?.parentPath?.parentPath?.node;
-									variableMather[(variableDeclarator.id as t.Identifier).name] = requirePath;
-								}
-							}
+                            if (path.parentPath.node.arguments.length == 1) {
+                                const requirePath = (path.parentPath.node.arguments[0] as t.StringLiteral).value;
+                                //获取文件名
+                                const requireSpecifier = requirePath.replace(/(.*\/)*([^.]+).*/ig, "$2").replace(/-/g, '_');
+                                if (!importMap.has(requirePath)) {
+                                    importMap.set(requirePath, new Set());
+                                }
+                                //require('xxx').AAA
+                                if (t.isMemberExpression(path.parentPath.parentPath) && t.isIdentifier((path?.parentPath?.parentPath?.node as t.MemberExpression)?.property)) {
+                                    const requirePathExports = importMap.get(requirePath);
+                                    const property = (path?.parentPath?.parentPath?.node as t.MemberExpression)?.property as t.Identifier;
+                                    const currentExport = property?.name;
+                                    if (requirePathExports) {
+                                        requirePathExports.add(currentExport);
+                                        importMap.set(requirePath, requirePathExports);
+                                        //替换当前行代码
+                                        path.parentPath.parentPath.replaceWithSourceString(prefix + requireSpecifier + currentExport)
+                                    }
+                                } else {
+                                    //替换当前行代码
+                                    path.parentPath.replaceWithSourceString(prefix + requireSpecifier)
+                                    /**
+                                     * 如果是这种情况
+                                     * const result = condition ? null : require('zzz/yyy/xxx');
+                                     * 需要记录这个result变量，然后往下全局找找他调用了什么方法，例如
+                                     * result.start();
+                                     * result.stop();
+                                     * 
+                                     * 最终变成
+                                     * import {start as _vite_plugin_require_transform_xxxstart,stop as _vite_plugin_require_transform_xxxstop} from "zzz/yyy/xxx"
+                                     * const _vite_plugin_require_transform_xxx = {start:_vite_plugin_require_transform_start,stop:_vite_plugin_require_transform_stop}
+                                     * const result = _vite_plugin_require_transform_xxx;
+                                     */
+    
+                                    // case1:const result = require('zzz/yyy/xxx');
+                                    if (t.isVariableDeclarator(path.parentPath?.parentPath?.node)) {
+                                        const variableDeclarator: t.VariableDeclarator = path.parentPath?.parentPath?.node;
+                                        variableMather[(variableDeclarator.id as t.Identifier).name] = requirePath;
+                                    }
+                                    //case2: const result = condition ? null : require('zzz/yyy/xxx');
+                                    if (t.isConditionalExpression(path.parentPath?.parentPath?.node) && t.isVariableDeclarator(path?.parentPath?.parentPath?.parentPath?.node)) {
+                                        const variableDeclarator: t.VariableDeclarator = path.parentPath?.parentPath?.parentPath?.node;
+                                        variableMather[(variableDeclarator.id as t.Identifier).name] = requirePath;
+                                    }
+                                }
+                            } else if (path.parentPath.node.arguments.length == 2) {
+                                // require([], resolve)
+                                const path1 = ((path.parentPath.node.arguments[0] as t.ArrayExpression).elements[0] as t.StringLiteral).value;
+                                //获取文件名
+                                const requireSpecifier = path1.replace(/(.*\/)*([^.]+).*/ig, "$2").replace(/-/g, '_');
+                                if (!importMap.has(path1)) {
+                                    importMap.set(path1, new Set());
+                                }
+                                const callBackName = (path.parentPath.node.arguments[1] as t.Identifier).name
+                                path.parentPath.parentPath.replaceWithSourceString(`${callBackName}(${requireSpecifier})`)
+                                variableMather[requireSpecifier]
+                            }
 						}
 						
 						//检查是不是XXX.forEach()
